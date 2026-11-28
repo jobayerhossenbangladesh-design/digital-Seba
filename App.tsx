@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AlertTriangle, Megaphone, MessageCircle, RefreshCw } from 'lucide-react';
 import { AdminPanel } from './components/AdminPanel';
 import { AdminPinModal } from './components/AdminPinModal';
@@ -276,6 +277,7 @@ export default function App() {
   return (
     <AppProvider>
       <DigitalShebaShell />
+      <SpeedInsights />
     </AppProvider>
   );
 }
