@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { Megaphone, MessageCircle } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Megaphone, MessageCircle, RefreshCw } from 'lucide-react';
 import { AdminPanel } from './components/AdminPanel';
 import { AdminPinModal } from './components/AdminPinModal';
 import { AuthModal } from './components/AuthModal';
@@ -16,10 +16,19 @@ import { SupportView } from './components/SupportView';
 import { UserDashboard } from './components/UserDashboard';
 import { WalletView } from './components/WalletView';
 import { AppProvider, useApp } from './context/AppContext';
+import { normalizeWhatsappNumber } from './data/seedData';
 import { ServiceItem } from './types';
 
 const DigitalShebaShell: React.FC = () => {
-  const { state, language, currentUser } = useApp();
+  const {
+    state,
+    language,
+    currentUser,
+    bootstrapError,
+    isSyncing,
+    retryBootstrap,
+    refreshUserState,
+  } = useApp();
   const isEn = language === 'en';
   const [viewMode, setViewMode] = useState<ViewMode>('user');
   const [activeTab, setActiveTab] = useState<UserTab>('home');
@@ -28,6 +37,39 @@ const DigitalShebaShell: React.FC = () => {
   );
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAdminPinOpen, setIsAdminPinOpen] = useState(false);
+  const lastUserSyncRef = useRef<number>(0);
+
+  const handleSelectTab = (tab: UserTab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // Visibility-aware background sync for signed-in users so approved recharges/order notes appear live
+  useEffect(() => {
+    if (!currentUser || viewMode !== 'user') return;
+
+    const triggerSync = () => {
+      const now = Date.now();
+      if (now - lastUserSyncRef.current < 10_000) return;
+      lastUserSyncRef.current = now;
+      void refreshUserState();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        triggerSync();
+      }
+    };
+
+    window.addEventListener('focus', triggerSync);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', triggerSync);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [currentUser, viewMode, refreshUserState]);
 
   const pendingOrdersCount = currentUser
     ? state.orders.filter(
@@ -37,7 +79,10 @@ const DigitalShebaShell: React.FC = () => {
       ).length
     : 0;
 
-  const waLink = 'https://wa.me/8801868132145';
+  const normalizedAdminWa =
+    normalizeWhatsappNumber(state.settings.adminWhatsapp || '8801868132145') ||
+    '8801868132145';
+  const waLink = `https://wa.me/${normalizedAdminWa}`;
 
   const announcement = (
     isEn
@@ -49,7 +94,7 @@ const DigitalShebaShell: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       <Navbar
         activeTab={activeTab}
-        onSelectTab={(tab) => setActiveTab(tab)}
+        onSelectTab={handleSelectTab}
         viewMode={viewMode}
         onExitAdmin={() => setViewMode('user')}
         onOpenAuth={() => setIsAuthOpen(true)}
@@ -92,15 +137,37 @@ const DigitalShebaShell: React.FC = () => {
 
       {/* Main Content Container */}
       <div className="flex-1 w-full max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-5 pb-24 md:pb-12">
+        {bootstrapError && (
+          <div className="mb-4 rounded-2xl bg-rose-50 border border-rose-200 p-3.5 flex flex-wrap items-center justify-between gap-3 text-rose-900">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>
+                {isEn
+                  ? 'Unable to reach server. Please check your connection and retry.'
+                  : 'সার্ভারের সাথে সংযোগ করতে সমস্যা হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void retryBootstrap()}
+              disabled={isSyncing}
+              className="min-h-[34px] px-3 py-1 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white text-xs font-semibold flex items-center gap-1.5"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`}
+              />
+              <span>{isEn ? 'Retry' : 'পুনরায় চেষ্টা'}</span>
+            </button>
+          </div>
+        )}
+
         {viewMode === 'admin' ? (
           <AdminPanel onExitAdmin={() => setViewMode('user')} />
         ) : (
           <div className="space-y-5 sm:space-y-6">
             {activeTab === 'home' && (
               <>
-                <UserDashboard
-                  onNavigateTab={(tab) => setActiveTab(tab)}
-                />
+                <UserDashboard onNavigateTab={handleSelectTab} />
 
                 <ServiceCatalog
                   services={state.services}
@@ -112,7 +179,7 @@ const DigitalShebaShell: React.FC = () => {
             {activeTab === 'orders' && (
               <OrdersView
                 onOpenAuth={() => setIsAuthOpen(true)}
-                onGoHome={() => setActiveTab('home')}
+                onGoHome={() => handleSelectTab('home')}
               />
             )}
 
@@ -138,7 +205,7 @@ const DigitalShebaShell: React.FC = () => {
               type="button"
               onClick={() => {
                 setViewMode('user');
-                setActiveTab('wallet');
+                handleSelectTab('wallet');
               }}
               className="hover:text-slate-900"
             >
@@ -171,30 +238,36 @@ const DigitalShebaShell: React.FC = () => {
       </a>
 
       {/* Service Order Modal */}
-      <ServiceOrderModal
-        service={selectedService}
-        onClose={() => setSelectedService(null)}
-        onGoToRecharge={() => setActiveTab('wallet')}
-        onGoToOrders={() => setActiveTab('orders')}
-        onOpenAuth={() => setIsAuthOpen(true)}
-      />
+      {selectedService && (
+        <ServiceOrderModal
+          service={selectedService}
+          onClose={() => setSelectedService(null)}
+          onGoToRecharge={() => handleSelectTab('wallet')}
+          onGoToOrders={() => handleSelectTab('orders')}
+          onOpenAuth={() => setIsAuthOpen(true)}
+        />
+      )}
 
       {/* Auth Modal */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onAdminLoginClick={() => setIsAdminPinOpen(true)}
-      />
+      {isAuthOpen && (
+        <AuthModal
+          isOpen={isAuthOpen}
+          onClose={() => setIsAuthOpen(false)}
+          onAdminLoginClick={() => setIsAdminPinOpen(true)}
+        />
+      )}
 
       {/* Secure Admin PIN Verification Modal */}
-      <AdminPinModal
-        isOpen={isAdminPinOpen}
-        onClose={() => setIsAdminPinOpen(false)}
-        onSuccess={() => {
-          setIsAdminPinOpen(false);
-          setViewMode('admin');
-        }}
-      />
+      {isAdminPinOpen && (
+        <AdminPinModal
+          isOpen={isAdminPinOpen}
+          onClose={() => setIsAdminPinOpen(false)}
+          onSuccess={() => {
+            setIsAdminPinOpen(false);
+            setViewMode('admin');
+          }}
+        />
+      )}
     </div>
   );
 };
