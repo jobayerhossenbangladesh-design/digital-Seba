@@ -1,8 +1,0 @@
-{
-  "name": "Digital Sheba - ডিজিটাল সেবা",
-  "description": "ডিজিটাল সেবা ও ওয়ালেট ভিত্তিক অনলাইন সার্ভিস অর্ডারিং প্ল্যাটফর্ম",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
